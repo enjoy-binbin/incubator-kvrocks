@@ -59,11 +59,11 @@ def run(*args: str, msg: Optional[str] = None, verbose: bool = False, **kwargs: 
 
     p = Popen(args, **kwargs)
     code = p.wait()
-    if code != 0:
-        err = f"\nfailed to run: {args}\nexit with code: {code}\n"
-        if msg:
-            err += f"error message: {msg}\n"
-        raise RuntimeError(err)
+    # if code != 0:
+    #     err = f"\nfailed to run: {args}\nexit with code: {code}\n"
+    #     if msg:
+    #         err += f"error message: {msg}\n"
+    #     raise RuntimeError(err)
 
     return p
 

@@ -95,6 +95,34 @@ class CommandPTTL : public Commander {
   }
 };
 
+class CommandExpireTime : public Commander {
+ public:
+  Status Execute(Server *svr, Connection *conn, std::string *output) override {
+    Redis::Database redis(svr->storage_, conn->GetNamespace());
+    int64_t ttl = 0;
+    auto s = redis.TTL(args_[1], &ttl);
+    if (s.ok()) {
+      *output = Redis::Integer(ttl > 0 ? ttl / 1000 : ttl);
+      return Status::OK();
+    }
+
+    return {Status::RedisExecErr, s.ToString()};
+  }
+};
+
+class CommandPExpireTime : public Commander {
+ public:
+  Status Execute(Server *svr, Connection *conn, std::string *output) override {
+    Redis::Database redis(svr->storage_, conn->GetNamespace());
+    int64_t ttl = 0;
+    auto s = redis.TTL(args_[1], &ttl);
+    if (!s.ok()) return {Status::RedisExecErr, s.ToString()};
+
+    *output = Redis::Integer(ttl);
+    return Status::OK();
+  }
+};
+
 class CommandExists : public Commander {
  public:
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
@@ -249,6 +277,8 @@ class CommandDel : public Commander {
 
 REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandTTL>("ttl", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandPTTL>("pttl", 2, "read-only", 1, 1, 1),
+                        MakeCmdAttr<CommandExpireTime>("expiretime", 2, "read-only", 1, 1, 1),
+                        MakeCmdAttr<CommandPExpireTime>("pexpiretime", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandType>("type", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandObject>("object", 3, "read-only", 2, 2, 1),
                         MakeCmdAttr<CommandExists>("exists", -2, "read-only", 1, -1, 1),
