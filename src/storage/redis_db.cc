@@ -143,11 +143,11 @@ rocksdb::Status Database::Exists(const std::vector<Slice> &keys, int *ret) {
   return rocksdb::Status::OK();
 }
 
-rocksdb::Status Database::TTL(const Slice &user_key, int64_t *ttl) {
+rocksdb::Status Database::ExpireOrTTL(const Slice &user_key, int64_t *val, bool is_ttl) {
   std::string ns_key;
   AppendNamespacePrefix(user_key, &ns_key);
 
-  *ttl = -2;  // ttl is -2 when the key does not exist or expired
+  *val = -2;  // val is -2 when the key does not exist or expired
   LatestSnapShot ss(storage_);
   rocksdb::ReadOptions read_options;
   read_options.snapshot = ss.GetSnapShot();
@@ -157,9 +157,22 @@ rocksdb::Status Database::TTL(const Slice &user_key, int64_t *ttl) {
 
   Metadata metadata(kRedisNone, false);
   metadata.Decode(value);
-  *ttl = metadata.TTL();
+
+  if (is_ttl) {
+    *val = metadata.TTL();
+  } else {
+    *val = metadata.Expire();
+  }
 
   return rocksdb::Status::OK();
+}
+
+rocksdb::Status Database::GetExpire(const Slice &user_key, int64_t *expire) {
+  return ExpireOrTTL(user_key, expire, false);
+}
+
+rocksdb::Status Database::TTL(const Slice &user_key, int64_t *ttl) {
+  return ExpireOrTTL(user_key, ttl, true);
 }
 
 void Database::GetKeyNumStats(const std::string &prefix, KeyNumStats *stats) { Keys(prefix, nullptr, stats); }

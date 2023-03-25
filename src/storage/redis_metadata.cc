@@ -283,7 +283,7 @@ void Metadata::PutExpire(std::string *dst) const {
   }
 }
 
-int64_t Metadata::ExpireOrTTL(bool ttl) const {
+int64_t Metadata::ExpireOrTTL(bool is_ttl) const {
   if (expire == 0) {
     return -1;
   }
@@ -293,7 +293,7 @@ int64_t Metadata::ExpireOrTTL(bool ttl) const {
     return -2;
   }
 
-  if (!ttl) {
+  if (!is_ttl) {
     return int64_t(expire);
   }
 

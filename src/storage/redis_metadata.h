@@ -142,6 +142,8 @@ class Metadata {
 
   RedisType Type() const;
   size_t CommonEncodedSize() const;
+  int64_t ExpireOrTTL(bool is_ttl) const;
+  int64_t Expire() const;
   int64_t TTL() const;
   timeval Time() const;
   bool Expired() const;

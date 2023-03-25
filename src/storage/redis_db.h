@@ -40,6 +40,8 @@ class Database {
   rocksdb::Status Expire(const Slice &user_key, uint64_t timestamp);
   rocksdb::Status Del(const Slice &user_key);
   rocksdb::Status Exists(const std::vector<Slice> &keys, int *ret);
+  rocksdb::Status ExpireOrTTL(const Slice &user_key, int64_t *val, bool is_ttl);
+  rocksdb::Status GetExpire(const Slice &user_key, int64_t *expire);
   rocksdb::Status TTL(const Slice &user_key, int64_t *ttl);
   rocksdb::Status Type(const Slice &user_key, RedisType *type);
   rocksdb::Status Dump(const Slice &user_key, std::vector<std::string> *infos);

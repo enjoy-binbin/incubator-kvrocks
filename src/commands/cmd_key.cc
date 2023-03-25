@@ -99,10 +99,10 @@ class CommandExpireTime : public Commander {
  public:
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
     Redis::Database redis(svr->storage_, conn->GetNamespace());
-    int64_t ttl = 0;
-    auto s = redis.TTL(args_[1], &ttl);
+    int64_t expire = 0;
+    auto s = redis.GetExpire(args_[1], &expire);
     if (s.ok()) {
-      *output = Redis::Integer(ttl > 0 ? ttl / 1000 : ttl);
+      *output = Redis::Integer(expire > 0 ? expire / 1000 : ttl);
       return Status::OK();
     }
 
@@ -114,11 +114,11 @@ class CommandPExpireTime : public Commander {
  public:
   Status Execute(Server *svr, Connection *conn, std::string *output) override {
     Redis::Database redis(svr->storage_, conn->GetNamespace());
-    int64_t ttl = 0;
-    auto s = redis.TTL(args_[1], &ttl);
+    int64_t expire = 0;
+    auto s = redis.GetExpire(args_[1], &expire);
     if (!s.ok()) return {Status::RedisExecErr, s.ToString()};
 
-    *output = Redis::Integer(ttl);
+    *output = Redis::Integer(expire);
     return Status::OK();
   }
 };
