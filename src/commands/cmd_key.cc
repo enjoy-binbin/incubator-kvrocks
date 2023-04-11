@@ -102,7 +102,7 @@ class CommandExpireTime : public Commander {
     int64_t expire = 0;
     auto s = redis.GetExpire(args_[1], &expire);
     if (s.ok()) {
-      *output = Redis::Integer(expire > 0 ? expire / 1000 : ttl);
+      *output = Redis::Integer(expire > 0 ? expire / 1000 : expire);
       return Status::OK();
     }
 
