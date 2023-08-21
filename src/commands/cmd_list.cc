@@ -519,6 +519,131 @@ class CommandRPopLPUSH : public Commander {
   }
 };
 
+class CommandBRPopLPUSH : public Commander,
+                          private EvbufCallbackBase<CommandBRPopLPUSH, false>,
+                          private EventCallbackBase<CommandBRPopLPUSH> {
+ public:
+  Status Parse(const std::vector<std::string> &args) override {
+    // BRPOPLPUSH <source> <destination> <timeout>
+    auto parse_result = ParseFloat(args[3]);
+    if (!parse_result) {
+      return {Status::RedisParseErr, errTimeoutIsNotFloat};
+    }
+    if (*parse_result < 0) {
+      return {Status::RedisParseErr, errTimeoutIsNegative};
+    }
+    timeout_ = static_cast<int64_t>(*parse_result * 1000 * 1000);  // microseconds
+
+    return Status::OK();
+  }
+
+  Status Execute(Server *svr, Connection *conn, std::string *output) override {
+    svr_ = svr;
+    conn_ = conn;
+
+    // BRPOPLPUSH <source> <destination> <timeout>
+    // Checks if the list exists, if it exists and has elements, the regular LMove is executed.
+    redis::List list_db(svr->storage, conn->GetNamespace());
+    std::string elem;
+    auto s = list_db.LMove(args_[1], args_[2], /*src_left=*/false, /*dst_left=*/true, &elem);
+    if (!s.ok() && !s.IsNotFound()) {
+      return {Status::RedisExecErr, s.ToString()};
+    }
+
+    // The list exists and has elements, return the element.
+    if (!elem.empty()) {
+      *output = redis::BulkString(elem);
+      return Status::OK();
+    }
+
+    // No blocking in multi-exec, returns immediately.
+    if (conn->IsInExec()) {
+      *output = redis::MultiLen(-1);
+      return Status::OK();
+    }
+
+    // The list is empty, so we should block the connection.
+    svr_->BlockOnKey(args_[1], conn_);
+    auto bev = conn->GetBufferEvent();
+    SetCB(bev);
+
+    // Add a timer, if we specified a timeout.
+    if (timeout_) {
+      timer_.reset(NewTimer(bufferevent_get_base(bev)));
+      int64_t timeout_second = timeout_ / 1000 / 1000;
+      int64_t timeout_microsecond = timeout_ % (1000 * 1000);
+      timeval tm = {timeout_second, static_cast<int>(timeout_microsecond)};
+      evtimer_add(timer_.get(), &tm);
+    }
+
+    return {Status::BlockingCmd};
+  }
+
+  void OnWrite(bufferevent *bev) {
+    // BRPOPLPUSH <source> <destination> <timeout>
+    redis::List list_db(svr_->storage, conn_->GetNamespace());
+    std::string elem;
+    auto s = list_db.LMove(args_[1], args_[2], /*src_left=*/false, /*dst_left=*/true, &elem);
+    if (!s.ok() && !s.IsNotFound()) {
+      conn_->Reply(redis::Error("ERR " + s.ToString()));
+      return;
+    }
+
+    if (elem.empty()) {
+      // The connection may be waked up but can't pop from list. For example,
+      // connection A is blocking on list and connection B push a new element
+      // then wake up the connection A, but this element may be token by other connection C.
+      // So we need to wait for the wake event again by disabling the WRITE event.
+      bufferevent_disable(bev, EV_WRITE);
+      return;
+    }
+
+    conn_->Reply(redis::BulkString(elem));
+
+    if (timer_) {
+      timer_.reset();
+    }
+
+    unblockOnSrc();
+    conn_->SetCB(bev);
+    bufferevent_enable(bev, EV_READ);
+    // We need to manually trigger the read event since we will stop processing commands
+    // in connection after the blocking command, so there may have some commands to be processed.
+    // Related issue: https://github.com/apache/kvrocks/issues/831
+    bufferevent_trigger(bev, EV_READ, BEV_TRIG_IGNORE_WATERMARKS);
+  }
+
+  void OnEvent(bufferevent *bev, int16_t events) {
+    if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+      if (timer_ != nullptr) {
+        timer_.reset();
+      }
+      unblockOnSrc();
+    }
+    conn_->OnEvent(bev, events);
+  }
+
+  void TimerCB(int, int16_t) {
+    conn_->Reply(redis::MultiLen(-1));
+    timer_.reset();
+    unblockOnSrc();
+    auto bev = conn_->GetBufferEvent();
+    conn_->SetCB(bev);
+    bufferevent_enable(bev, EV_READ);
+  }
+
+ private:
+  int64_t timeout_ = 0;  // microseconds
+  Server *svr_ = nullptr;
+  Connection *conn_ = nullptr;
+  UniqueEvent timer_;
+
+  void unblockOnSrc() {
+    svr_->UnblockOnKey(args_[1], conn_);
+  }
+};
+
+
 class CommandLMove : public Commander {
  public:
   Status Parse(const std::vector<std::string> &args) override {
@@ -768,6 +893,7 @@ REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandBLPop>("blpop", -3, "write no-script"
                         MakeCmdAttr<CommandLTrim>("ltrim", 4, "write", 1, 1, 1),
                         MakeCmdAttr<CommandRPop>("rpop", -2, "write", 1, 1, 1),
                         MakeCmdAttr<CommandRPopLPUSH>("rpoplpush", 3, "write", 1, 2, 1),
+                        MakeCmdAttr<CommandBRPopLPUSH>("brpoplpush", 4, "write", 1, 2, 1),
                         MakeCmdAttr<CommandRPush>("rpush", -3, "write", 1, 1, 1),
                         MakeCmdAttr<CommandRPushX>("rpushx", -3, "write", 1, 1, 1), )
 

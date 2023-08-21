@@ -624,6 +624,16 @@ func TestList(t *testing.T) {
 		require.Equal(t, "", rdb.RPopLPush(ctx, "srclist", "dstlist").Val())
 	})
 
+	t.Run("BRPOPLPUSH block behaviour", func(t *testing.T) {
+		rd := srv.NewTCPClient()
+		defer func() { require.NoError(t, rd.Close()) }()
+		require.NoError(t, rdb.Del(ctx, "srclist", "dstlist").Err())
+		require.NoError(t, rd.WriteArgs("brpoplpush", "srclist", "dstlist", "0"))
+		require.EqualValues(t, 2, rdb.LPush(ctx, "srclist", "foo", "bar").Val())
+		rd.MustRead(t, "$3")
+		require.Equal(t, "bar", rdb.LRange(ctx, "dstlist", 0, -1).Val()[0])
+	})
+
 	for listType, large := range largeValue {
 		t.Run(fmt.Sprintf("Basic LPOP/RPOP - %s", listType), func(t *testing.T) {
 			createList("mylist", []string{large, "1", "2"})
