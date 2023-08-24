@@ -1333,6 +1333,38 @@ class CommandZUnionStore : public Commander {
   AggregateMethod aggregate_method_ = kAggregateSum;
 };
 
+class CommandZInter : public CommandZUnion {
+ public:
+  CommandZInter() : CommandZUnion() {}
+
+  Status Execute(Server *svr, Connection *conn, std::string *output) override {
+    redis::ZSet zset_db(svr->storage, conn->GetNamespace());
+    std::vector<MemberScore> member_scores;
+    auto s = zset_db.Inter(keys_weights_, aggregate_method_, nullptr, &member_scores);
+    if (!s.ok()) {
+      return {Status::RedisExecErr, s.ToString()};
+    }
+    auto compare_score = [](const MemberScore &score1, const MemberScore &score2) {
+      if (score1.score == score2.score) {
+        return score1.member < score2.member;
+      }
+      return score1.score < score2.score;
+    };
+    std::sort(member_scores.begin(), member_scores.end(), compare_score);
+    output->append(redis::MultiLen(member_scores.size() * (with_scores_ ? 2 : 1)));
+    for (const auto &ms : member_scores) {
+      output->append(redis::BulkString(ms.member));
+      if (with_scores_) output->append(redis::BulkString(util::Float2String(ms.score)));
+    }
+    return Status::OK();
+  }
+
+  static CommandKeyRange Range(const std::vector<std::string> &args) {
+    int num_key = *ParseInt<int>(args[1], 10);
+    return {2, 1 + num_key, 1};
+  }
+};
+
 class CommandZInterStore : public CommandZUnionStore {
  public:
   CommandZInterStore() : CommandZUnionStore() {}
@@ -1383,6 +1415,7 @@ REDIS_REGISTER_COMMANDS(MakeCmdAttr<CommandZAdd>("zadd", -4, "write", 1, 1, 1),
                         MakeCmdAttr<CommandZCard>("zcard", 2, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandZCount>("zcount", 4, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandZIncrBy>("zincrby", 4, "write", 1, 1, 1),
+                        MakeCmdAttr<CommandZInter>("zinter", -3, "write", CommandZInter::Range),
                         MakeCmdAttr<CommandZInterStore>("zinterstore", -4, "write", CommandZInterStore::Range),
                         MakeCmdAttr<CommandZLexCount>("zlexcount", 4, "read-only", 1, 1, 1),
                         MakeCmdAttr<CommandZPopMax>("zpopmax", -2, "write", 1, 1, 1),
